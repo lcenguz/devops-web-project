@@ -1,52 +1,39 @@
 pipeline {
     agent {
+        node {
         label 'dockerhost-build-server'
+        }
     }
-
-    environment {
-        DOCKER_USER = 'jlcendguz'
-        IMAGE_NAME = 'mytomcat'
-        DOCKER_HUB_CREDS = credentials('devops-dockerhub-token')
+    tools {
+        maven 'maven-3.9.6'
     }
-
     stages {
-        stage('Limpieza del Entorno') {
+        stage('Packaging') {
             steps {
-                echo 'Limpiando contenedores antiguos...'
-                sh "docker rm -f ${IMAGE_NAME} || true"
-                sh "docker image prune -f || true"
+                echo 'Packaging..'
+                sh 'mvn clean package'
             }
         }
-
-        stage('Construcción de Imagen') {
+        stage('Copying war file') {
             steps {
-                echo 'Construyendo la imagen de Tomcat...'
-                sh "docker build -t ${DOCKER_USER}/${IMAGE_NAME}:${BUILD_NUMBER} ."
-                sh "docker tag ${DOCKER_USER}/${IMAGE_NAME}:${BUILD_NUMBER} ${DOCKER_USER}/${IMAGE_NAME}:latest"
+                echo 'Copying war file..'
+                sh 'mv target/*.war .'
             }
         }
-
-        stage('Login y Push a Docker Hub') {
-            steps {
-                echo 'Subiendo imagen a Docker Hub...'
-                sh "echo \$DOCKER_HUB_CREDS_PSW | docker login -u \$DOCKER_HUB_CREDS_USR --password-stdin"
-                sh "docker push ${DOCKER_USER}/${IMAGE_NAME}:${BUILD_NUMBER}"
-                sh "docker push ${DOCKER_USER}/${IMAGE_NAME}:latest"
-            }
+        stage('cleanup') {
+          steps {
+            sh 'docker system prune -a --volumes --force --filter "label=devops-web-project-server"'
+          }
         }
-
-        stage('Despliegue Local') {
-            steps {
-                echo 'Ejecutando el contenedor en el Docker Host...'
-                sh "docker run -d --name ${IMAGE_NAME} -p 8081:8080 ${DOCKER_USER}/${IMAGE_NAME}:latest"
-            }
+        stage('build image') {
+          steps {
+            sh 'docker build -t lcenguz/devops-web-project:v1 --label devops-web-project-server .'
+          }
+        }
+        stage('run container') {
+          steps {
+            sh 'docker run -d --name devops-web-project-server --label devops-web-project-server -p 8081:8080 lcenguz/devops-web-project:v1'
+          }
         }
     }
-
-    post {
-        always {
-            echo 'Cerrando sesión de Docker...'
-            sh "docker logout"
-        }
-    }
-}
+  }
